@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>关键词搜索</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 自定义字体，确保中文字符显示良好 */
+        body {
+            font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        }
+        /* 表格单元格内边距 */
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0; /* 浅灰色边框 */
+        }
+        th {
+            background-color: #f8fafc; /* 更浅的表头背景 */
+            font-weight: 600; /* 表头字体加粗 */
+        }
+        /* 响应式表格 */
+        .table-container {
+            overflow-x: auto; /* 在小屏幕上添加水平滚动条 */
+        }
+        /* 按钮样式 */
+        .search-button {
+            transition: background-color 0.3s ease;
+        }
+        .search-button:hover {
+            background-color: #3b82f6; /* 鼠标悬停时深蓝色 */
+        }
+        /* 输入框样式 */
+        .search-input {
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+        .search-input:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5);
+        }
+        /* 加载提示 */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 4px solid #3498db;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* 错误消息 */
+        .error-message {
+            background-color: #fee2e2; /* 浅红色背景 */
+            color: #b91c1c; /* 深红色文字 */
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #fecaca; /* 红色边框 */
+        }
+        /* 无结果消息 */
+        .no-results-message {
+            background-color: #eff6ff; /* 浅蓝色背景 */
+            color: #1e40af; /* 深蓝色文字 */
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #bfdbfe; /* 蓝色边框 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center pt-10">
+    <div class="container mx-auto p-4 bg-white shadow-lg rounded-lg w-full max-w-4xl">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-8">频道信息搜索</h1>
+
+        <div class="mb-6 flex flex-col sm:flex-row items-center gap-4">
+            <input type="text" id="keywordInput" class="search-input flex-grow p-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="请输入关键词 (例如: fallout lora)">
+            <button id="searchButton" class="search-button bg-blue-500 text-white font-semibold py-3 px-6 rounded-lg shadow-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 w-full sm:w-auto">
+                搜索
+            </button>
+        </div>
+
+        <div id="loader" class="loader hidden"></div>
+        <div id="errorMessage" class="error-message hidden my-4"></div>
+        <div id="noResultsMessage" class="no-results-message hidden my-4 text-center"></div>
+
+
+        <div class="table-container">
+            <table class="min-w-full bg-white rounded-lg shadow overflow-hidden">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">频道头像</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">频道名称</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">频道ID</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">订阅者数量</th>
+                        <th class="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">频道描述</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsTableBody" class="bg-white divide-y divide-gray-200">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // DOM 元素获取
+        const keywordInput = document.getElementById('keywordInput');
+        const searchButton = document.getElementById('searchButton');
+        const resultsTableBody = document.getElementById('resultsTableBody');
+        const loader = document.getElementById('loader');
+        const errorMessage = document.getElementById('errorMessage');
+        const noResultsMessage = document.getElementById('noResultsMessage');
+
+        // API 地址 (请确保这是您的可公开访问的API地址，并且已配置CORS)
+        const API_URL = 'https://docker-local.creatorlens.asia/v1/search';
+
+        // 搜索按钮点击事件
+        searchButton.addEventListener('click', performSearch);
+        // 支持回车搜索
+        keywordInput.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                performSearch();
+            }
+        });
+
+        async function performSearch() {
+            const keyword = keywordInput.value.trim();
+            if (!keyword) {
+                displayError("请输入关键词后再搜索。");
+                return;
+            }
+
+            // 清空旧结果和消息
+            resultsTableBody.innerHTML = '';
+            hideMessages();
+            loader.classList.remove('hidden'); // 显示加载提示
+
+            try {
+                // 发起 HTTP POST 请求
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        // 如果您的API需要其他头部信息 (例如认证token), 请在此处添加
+                        // 'Authorization': 'Bearer YOUR_API_TOKEN'
+                    },
+                    body: JSON.stringify({ keyword: keyword }) // 将关键词作为JSON发送
+                });
+
+                if (!response.ok) {
+                    // 尝试解析错误响应体，如果API返回JSON格式的错误信息
+                    let errorData;
+                    try {
+                        errorData = await response.json();
+                    } catch (e) {
+                        // 如果响应体不是JSON，或者解析失败
+                        errorData = { message: `HTTP 错误: ${response.status} ${response.statusText}` };
+                    }
+                    // 使用API返回的错误消息，或者一个通用的HTTP错误消息
+                    throw new Error(errorData.message || `请求失败，状态码: ${response.status}`);
+                }
+
+                const data = await response.json(); // 解析JSON响应体
+
+                if (data.status === "success" && data.results && data.results.length > 0) {
+                    displayResults(data.results);
+                } else if (data.results && data.results.length === 0) {
+                    displayNoResults("没有找到与 \"" + (data.keyword_searched || keyword) + "\" 相关的结果。");
+                } else {
+                    // 如果 status 不是 "success" 或者 results 结构不符合预期
+                    displayError(data.message || "未能获取有效数据或API返回非成功状态。");
+                }
+
+            } catch (error) {
+                console.error('搜索过程中发生错误:', error);
+                // 显示更具体的错误信息给用户
+                let userMessage = `搜索失败: ${error.message}. `;
+                if (API_URL.includes('docker-local') || API_URL.includes('localhost') || API_URL.startsWith('http://')) {
+                    userMessage += "请确保API服务器正在运行，并且可以从您的浏览器访问。如果部署到线上，请确认API地址是公开可访问的HTTPS地址，并已正确配置CORS。";
+                } else {
+                    userMessage += "请检查网络连接和API服务器状态，或查看浏览器控制台获取更多技术信息。";
+                }
+                displayError(userMessage);
+            } finally {
+                loader.classList.add('hidden'); // 隐藏加载提示
+            }
+        }
+
+        // 显示搜索结果
+        function displayResults(results) {
+            results.forEach(item => {
+                const row = resultsTableBody.insertRow();
+                row.className = 'hover:bg-gray-50 transition-colors duration-150';
+
+                // 频道头像
+                const avatarCell = row.insertCell();
+                const avatarImg = document.createElement('img');
+                // 处理可能不带协议的头像URL (例如 //yt3.ggpht.com/...)
+                avatarImg.src = item.channel_avatar && item.channel_avatar.startsWith("//") ? "https:" + item.channel_avatar : (item.channel_avatar || '');
+                avatarImg.alt = (item.channel_name || '未知频道') + " 头像";
+                avatarImg.className = "w-12 h-12 rounded-full object-cover";
+                avatarImg.onerror = function() { // 图片加载失败时的备用方案
+                    this.src = `https://placehold.co/48x48/e2e8f0/64748b?text=${(item.channel_name || '?').substring(0,1)}`;
+                    this.alt = (item.channel_name || '未知频道') + " 默认头像";
+                };
+                if (!item.channel_avatar) { // 如果没有头像URL，直接使用占位符
+                     avatarImg.src = `https://placehold.co/48x48/e2e8f0/64748b?text=${(item.channel_name || '?').substring(0,1)}`;
+                }
+                avatarCell.appendChild(avatarImg);
+                avatarCell.className = 'py-3 px-4';
+
+
+                // 频道名称
+                const nameCell = row.insertCell();
+                nameCell.textContent = item.channel_name || 'N/A';
+                nameCell.className = 'py-3 px-4 text-sm text-gray-700';
+
+                // 频道ID
+                const idCell = row.insertCell();
+                idCell.textContent = item.channel_id || 'N/A';
+                idCell.className = 'py-3 px-4 text-sm text-gray-700';
+
+                // 订阅者数量
+                const subscribersCell = row.insertCell();
+                subscribersCell.textContent = item.channel_subscribers || 'N/A';
+                subscribersCell.className = 'py-3 px-4 text-sm text-gray-700';
+
+                // 频道描述
+                const descriptionCell = row.insertCell();
+                descriptionCell.textContent = item.channel_description || '无描述';
+                descriptionCell.className = 'py-3 px-4 text-sm text-gray-700 max-w-xs truncate'; // 限制最大宽度并截断长文本
+                if (item.channel_description) {
+                    descriptionCell.title = item.channel_description; // 鼠标悬停显示完整描述
+                }
+            });
+        }
+
+        // 显示错误消息
+        function displayError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+            noResultsMessage.classList.add('hidden');
+        }
+
+        // 显示无结果消息
+        function displayNoResults(message) {
+            noResultsMessage.textContent = message;
+            noResultsMessage.classList.remove('hidden');
+            errorMessage.classList.add('hidden');
+        }
+
+        // 隐藏所有消息
+        function hideMessages() {
+            errorMessage.classList.add('hidden');
+            noResultsMessage.classList.add('hidden');
+        }
+
+    </script>
+</body>
+</html>
