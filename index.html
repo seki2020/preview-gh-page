@@ -200,7 +200,8 @@
                 // 处理可能不带协议的头像URL (例如 //yt3.ggpht.com/...)
                 avatarImg.src = item.channel_avatar && item.channel_avatar.startsWith("//") ? "https:" + item.channel_avatar : (item.channel_avatar || '');
                 avatarImg.alt = (item.channel_name || '未知频道') + " 头像";
-                avatarImg.className = "w-12 h-12 rounded-full object-cover";
+                // 修改：添加 'block' 类确保宽高被正确应用，防止图片变形
+                avatarImg.className = "block w-12 h-12 rounded-full object-cover";
                 avatarImg.onerror = function() { // 图片加载失败时的备用方案
                     this.src = `https://placehold.co/48x48/e2e8f0/64748b?text=${(item.channel_name || '?').substring(0,1)}`;
                     this.alt = (item.channel_name || '未知频道') + " 默认头像";
